@@ -1,8 +1,9 @@
 ﻿#if INTERACTIVE
 #r "nuget: NuGet.Protocol"
 #r "nuget: NuGet.Resolver"
+#r "nuget: FSharp.Data"
 #else
-module ServerNuGet
+module NuGet
 #endif
 
 open System.Collections.Concurrent
@@ -14,6 +15,7 @@ open NuGet.Protocol
 open NuGet.Protocol.Core.Types
 open NuGet.Resolver
 open NuGet.Versioning
+open FSharp.Data
 
 type Package = {
     Id : string
@@ -97,4 +99,36 @@ let getGraph (p : Package) (f : string) =
             }
 
         return createTree package
+    }
+
+type ServiceIndex = JsonProvider<"https://api.nuget.org/v3/index.json">
+type Autocomplete = JsonProvider<"https://azuresearch-ussc.nuget.org/autocomplete?q=NuGet.Protocol">
+
+let getNuGetServiceUrl service =
+    async {
+        let! serviceIndex = "https://api.nuget.org/v3/index.json" |> ServiceIndex.AsyncLoad
+        let url =
+            serviceIndex.Resources
+            |> Seq.tryFind (fun r -> r.Type = service)
+            |> (fun s ->
+                    match s with
+                    | Some x -> x.Id
+                    | _ -> failwithf "Unable to load NuGet service %s" service)
+        return url
+    }
+
+let autoComplete query =
+    async {
+        let! url = "SearchAutocompleteService/3.5.0" |> getNuGetServiceUrl
+        let! response = sprintf "%s?q=%s" url query |> Autocomplete.AsyncLoad
+
+        return response.Data
+    }
+
+let listVersions package =
+    async {
+        let! url = "SearchAutocompleteService/3.5.0" |> getNuGetServiceUrl
+        let! response = sprintf "%s?id=%s&semVerLevel=2.0.0" url package |> Autocomplete.AsyncLoad
+
+        return response.Data
     }

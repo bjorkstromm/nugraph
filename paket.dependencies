@@ -7,6 +7,7 @@ nuget Saturn
 nuget Expecto
 nuget NuGet.Protocol
 nuget NuGet.Resolver
+nuget FSharp.Data
 
 nuget Fable.Core
 nuget Fable.Elmish

@@ -31,7 +31,8 @@ let todosApi =
             match storage.AddTodo todo with
             | Ok () -> return todo
             | Error e -> return failwith e
-        } }
+        }
+      autoComplete = NuGet.autoComplete }
 
 let webApp =
     Remoting.createApi()
