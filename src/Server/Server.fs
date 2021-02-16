@@ -32,7 +32,8 @@ let todosApi =
             | Ok () -> return todo
             | Error e -> return failwith e
         }
-      autoComplete = NuGet.autoComplete }
+      autoComplete = NuGet.autoComplete
+      getVersions = NuGet.listVersions }
 
 let webApp =
     Remoting.createApi()

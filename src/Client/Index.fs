@@ -1,24 +1,23 @@
 module Index
 
+open AutoComplete
 open Elmish
 open Fable.Remoting.Client
 open Shared
 
-type Completions = { Items : string array; Selected : int option; Show : bool }
+type Completions = { Items : string array; Selected : string }
 
-type Model =
-    { Todos: Todo list
-      Input: string
-      Completions: Completions }
+type Model = {
+    PackageIds: Completions
+    PackageVersions: Completions
+}
 
 type Msg =
-    | GotTodos of Todo list
-    | SetInput of string
-    | AddTodo
-    | AddedTodo of Todo
-    | UpdatedCompletions of string []
-    | SelectCompletion of int
-    | SelectCompletionOffset of int
+    | SetPackageId of string
+    | UpdatedPackageIds of string []
+    | SetPackageVersion of string
+    | UpdatePackageVersions of string
+    | UpdatedPackageVersions of string []
 
 let todosApi =
     Remoting.createApi()
@@ -26,37 +25,27 @@ let todosApi =
     |> Remoting.buildProxy<ITodosApi>
 
 let init(): Model * Cmd<Msg> =
-    let model =
-        { Todos = []
-          Input = ""
-          Completions = { Items = [||]; Selected = None ; Show = false } }
-    let cmd = Cmd.OfAsync.perform todosApi.getTodos () GotTodos
+    let model = {
+        PackageIds = { Items = [||]; Selected = "" }
+        PackageVersions = { Items = [||]; Selected = "" }
+    }
+    let cmd = Cmd.none
     model, cmd
 
 let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
     match msg with
-    | GotTodos todos ->
-        { model with Todos = todos }, Cmd.none
-    | SetInput value ->
-        let cmd = Cmd.OfAsync.perform todosApi.autoComplete value UpdatedCompletions
-        { model with Input = value }, cmd
-    | AddTodo ->
-        let todo = Todo.create model.Input
-        let cmd = Cmd.OfAsync.perform todosApi.addTodo todo AddedTodo
-        { model with Input = "" }, cmd
-    | AddedTodo todo ->
-        { model with Todos = model.Todos @ [ todo ] }, Cmd.none
-    | UpdatedCompletions completions ->
-        { model with Completions = { Items = completions; Selected = None; Show = true } }, Cmd.none
-    | SelectCompletionOffset offset ->
-        let count = model.Completions.Items.Length
-        let newSelected =
-            match model.Completions.Selected with
-            | Some current -> current
-            | None when offset > 0 -> -1
-            | None -> count
-            |> fun initial -> (initial + offset + count) % count
-        { model with Completions = { model.Completions with Selected = Some newSelected } }, Cmd.none
+    | SetPackageId value ->
+        let cmd = Cmd.OfAsync.perform todosApi.autoComplete value UpdatedPackageIds
+        { model with PackageIds = { model.PackageIds with Selected = value } }, cmd
+    | UpdatedPackageIds completions ->
+        { model with PackageIds = { model.PackageIds with Items = completions } }, Cmd.none
+    | UpdatePackageVersions value ->
+        let cmd = Cmd.OfAsync.perform todosApi.getVersions value UpdatedPackageVersions
+        { model with PackageVersions = { Items = [||]; Selected = "" } }, cmd
+    | UpdatedPackageVersions completions ->
+        { model with PackageVersions = { model.PackageVersions with Items = completions } }, Cmd.none
+    | SetPackageVersion value ->
+        { model with PackageVersions = { model.PackageVersions with Selected = value } }, Cmd.none
 
 open Fable.React
 open Fable.React.Props
@@ -75,50 +64,66 @@ let navBrand =
         ]
     ]
 
-let viewCompletions dispatch completions =
-    match completions.Items with
-    | [||] -> []
-    | _ ->
-        let viewSuggestion i sug =
-            let attributes = [
-                yield OnMouseDown (fun _ -> dispatch (SelectCompletion i)) :> IHTMLProp
-                if Some i = completions.Selected then yield Style [ BackgroundColor "#cccccc" ] :> IHTMLProp ]
-            div attributes [ str sug ]
-        [ div
-            [ Style [ Position PositionOptions.Absolute; ZIndex 10.; BackgroundColor "#FFFFFF"; Border "1" ]; ClassName "border block" ]
-            [ yield! completions.Items |> Array.mapi viewSuggestion ] ]
-
 let containerBox (model : Model) (dispatch : Msg -> unit) =
+    let itemStyle highlight = [
+        Background(if highlight then "gray" else "none")
+        Padding "5px 10px"
+    ]
+    let menuStyle = [
+        Position PositionOptions.Absolute
+        ZIndex 10.
+        Background "rgba(255, 255, 255, 0.9) none repeat scroll 0% 0%"
+        Left "unset"
+        Top "unset"
+        OverflowStyle OverflowOptions.Auto
+        Border "2px solid #cccccc"
+        BorderRadius 5.
+    ]
     Box.box' [ ] [
-        Content.content [ ] [
-            Content.Ol.ol [ ] [
-                for todo in model.Todos do
-                    li [ ] [ str todo.Description ]
+        Field.div [
+            Field.IsExpanded
+            ] [
+            AutoComplete.autocomplete [
+                Items model.PackageIds.Items
+                AutoCompleteProps<_>.OnChange (fun _ v ->
+                    v |> SetPackageId |> dispatch |> ignore
+                    v |> UpdatePackageVersions |> dispatch |> ignore)
+                AutoCompleteProps<_>.Value model.PackageIds.Selected
+                AutoCompleteProps<_>.OnSelect (fun v ->
+                    v |> SetPackageId |> dispatch |> ignore
+                    v |> UpdatePackageVersions |> dispatch |> ignore)
+                GetItemValue id
+                RenderItem (fun value highlight ->
+                    div [
+                        Prop.Key value
+                        Props.Style (highlight |> itemStyle)
+                    ] [ str value ])
+                InputProps [
+                    ClassName "input is-primary";
+                    Placeholder "Select package";
+                ]
+                MenuStyle menuStyle
+                WrapperStyle [
+                    Display DisplayOptions.Block
+                ]
             ]
-        ]
-        Field.div [ Field.IsGrouped ] [
-            Control.p [ Control.IsExpanded ] [
-                Input.text [
-                  Input.Value model.Input
-                  Input.Placeholder "What needs to be done?"
-                  Input.OnChange (fun x -> SetInput x.Value |> dispatch)
-                  Input.Props [
-                      OnKeyDown (fun k ->
-                        match k.key with
-                        | "ArrowUp" -> dispatch (SelectCompletionOffset -1)
-                        | "ArrowDown" -> dispatch (SelectCompletionOffset 1)
-                        | "Enter" -> dispatch AddTodo
-                      )
-                  ]]
-                yield! viewCompletions dispatch model.Completions
-            ]
-            Control.p [ ] [
-                Button.a [
-                    Button.Color IsPrimary
-                    Button.Disabled (Todo.isValid model.Input |> not)
-                    Button.OnClick (fun _ -> dispatch AddTodo)
-                ] [
-                    str "Add"
+            AutoComplete.autocomplete [
+                Items model.PackageVersions.Items
+                AutoCompleteProps<_>.Value model.PackageVersions.Selected
+                AutoCompleteProps<_>.OnSelect (SetPackageVersion >> dispatch)
+                GetItemValue id
+                RenderItem (fun value highlight ->
+                    div [
+                        Prop.Key value
+                        Props.Style (highlight |> itemStyle)
+                    ] [ str value ])
+                InputProps [
+                    ClassName "input is-primary";
+                    Placeholder "Select version";
+                ]
+                MenuStyle menuStyle
+                WrapperStyle [
+                    Display DisplayOptions.Block
                 ]
             ]
         ]

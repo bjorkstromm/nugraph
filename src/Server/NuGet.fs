@@ -130,5 +130,5 @@ let listVersions package =
         let! url = "SearchAutocompleteService/3.5.0" |> getNuGetServiceUrl
         let! response = sprintf "%s?id=%s&semVerLevel=2.0.0" url package |> Autocomplete.AsyncLoad
 
-        return response.Data
+        return response.Data |> Array.rev
     }

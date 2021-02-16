@@ -21,4 +21,5 @@ module Route =
 type ITodosApi =
     { getTodos : unit -> Async<Todo list>
       addTodo : Todo -> Async<Todo>
-      autoComplete : string -> Async<string []> }
+      autoComplete : string -> Async<string []>
+      getVersions : string -> Async<string []> }
