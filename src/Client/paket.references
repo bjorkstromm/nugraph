@@ -8,3 +8,4 @@ Fable.React
 Fable.Remoting.Client
 Fulma
 Fable.React.Autocomplete
+Thoth.Elmish.Debouncer

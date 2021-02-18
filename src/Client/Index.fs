@@ -4,19 +4,22 @@ open AutoComplete
 open Elmish
 open Fable.Remoting.Client
 open Shared
+open Thoth.Elmish
 
 type Completions = { Items : string array; Selected : string }
 
 type Model = {
     PackageIds: Completions
     PackageVersions: Completions
+    Debouncer: Debouncer.State
 }
 
 type Msg =
+    | DebouncerSelfMsg of Debouncer.SelfMessage<Msg>
+    | TypingPackageId of string
     | SetPackageId of string
     | UpdatedPackageIds of string []
     | SetPackageVersion of string
-    | UpdatePackageVersions of string
     | UpdatedPackageVersions of string []
 
 let todosApi =
@@ -28,22 +31,38 @@ let init(): Model * Cmd<Msg> =
     let model = {
         PackageIds = { Items = [||]; Selected = "" }
         PackageVersions = { Items = [||]; Selected = "" }
+        Debouncer = Debouncer.create()
     }
     let cmd = Cmd.none
     model, cmd
 
 let update (msg: Msg) (model: Model): Model * Cmd<Msg> =
     match msg with
+    | DebouncerSelfMsg msg ->
+        let (debouncer, cmd) = Debouncer.update msg model.Debouncer
+        { model with Debouncer = debouncer }, cmd
+
+    | TypingPackageId str ->
+        let (debouncerModel, debouncerCmd) =
+            model.Debouncer
+            |> Debouncer.bounce (System.TimeSpan.FromMilliseconds 300.) "user_input" (str |> SetPackageId)
+        let cmd = Cmd.batch [ Cmd.map DebouncerSelfMsg debouncerCmd ]
+        { model with Debouncer = debouncerModel
+                     PackageIds = { model.PackageIds with Selected = str } }, cmd
+
     | SetPackageId value ->
-        let cmd = Cmd.OfAsync.perform todosApi.autoComplete value UpdatedPackageIds
+        let cmd = Cmd.batch [
+            Cmd.OfAsync.perform todosApi.autoComplete value UpdatedPackageIds
+            Cmd.OfAsync.perform todosApi.getVersions value UpdatedPackageVersions
+        ]
         { model with PackageIds = { model.PackageIds with Selected = value } }, cmd
+
     | UpdatedPackageIds completions ->
         { model with PackageIds = { model.PackageIds with Items = completions } }, Cmd.none
-    | UpdatePackageVersions value ->
-        let cmd = Cmd.OfAsync.perform todosApi.getVersions value UpdatedPackageVersions
-        { model with PackageVersions = { Items = [||]; Selected = "" } }, cmd
+
     | UpdatedPackageVersions completions ->
         { model with PackageVersions = { model.PackageVersions with Items = completions } }, Cmd.none
+
     | SetPackageVersion value ->
         { model with PackageVersions = { model.PackageVersions with Selected = value } }, Cmd.none
 
@@ -85,13 +104,9 @@ let containerBox (model : Model) (dispatch : Msg -> unit) =
             ] [
             AutoComplete.autocomplete [
                 Items model.PackageIds.Items
-                AutoCompleteProps<_>.OnChange (fun _ v ->
-                    v |> SetPackageId |> dispatch |> ignore
-                    v |> UpdatePackageVersions |> dispatch |> ignore)
+                AutoCompleteProps<_>.OnChange (fun _ v -> v |> TypingPackageId |> dispatch)
                 AutoCompleteProps<_>.Value model.PackageIds.Selected
-                AutoCompleteProps<_>.OnSelect (fun v ->
-                    v |> SetPackageId |> dispatch |> ignore
-                    v |> UpdatePackageVersions |> dispatch |> ignore)
+                AutoCompleteProps<_>.OnSelect (SetPackageId >> dispatch)
                 GetItemValue id
                 RenderItem (fun value highlight ->
                     div [
